@@ -1,0 +1,8 @@
+<resources>
+    <!-- android:windowLightStatusBar was added in API 23; keep it out of the base
+         values/ folder now that minSdk is 21 (Android 5.x ignores it, but lint
+         flags it as a NewApi error). -->
+    <style name="AppTheme">
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
