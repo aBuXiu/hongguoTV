@@ -67,14 +67,27 @@ class ContentRepository(val http: OkHttpClient = OkHttpClient.Builder().connectT
     }
     fun search(keyword: String, page: Int = 1, type: ContentType = ContentType.SHORT): CatalogPage {
         require(keyword.isNotBlank() && keyword.length<=80 && page in 1..100)
-        // The website search does not constrain content type. Never use it for comics.
-        if(type==ContentType.COMIC) return appSearch(keyword,page,type)
-        try { val result=appSearch(keyword,page,type); if(result.items.isNotEmpty() || !result.hasMore) return result } catch (e: Exception) { if(e is SearchSessionExpiredException) throw e; /* Website fallback for short dramas only. */ }
-        val data=router("$site/search/${Signer.encode(keyword)}?page=$page")
-        val section=data.optJSONObject("search_(keyword)/page") ?: data.optJSONObject("search_page") ?: throw IOException("搜索数据暂不可用")
-        val rows=section.optJSONArray("searchList") ?: throw IOException("搜索数据结构已变化")
-        val items=valid(rows.objects().map(::card))
-        return CatalogPage(items,items.isNotEmpty() && page<100)
+        // Try the in-app (fqnovel) search first for every content type. If it fails or
+        // returns an empty page (the fqnovel search endpoint has been returning empty
+        // bodies), fall back to the website search so search never hard-fails.
+        try { val result=appSearch(keyword,page,type); if(result.items.isNotEmpty() || !result.hasMore) return result } catch (e: Exception) { if(e is SearchSessionExpiredException) throw e }
+        // Website fallback. The site intermittently answers 5xx under load / rapid requests,
+        // so retry a few times before giving up.
+        var lastFailure: Exception? = null
+        for (attempt in 0 until 3) {
+            try {
+                val data=router("$site/search/${Signer.encode(keyword)}?page=$page")
+                val section=data.optJSONObject("search_(keyword)/page") ?: data.optJSONObject("search_page") ?: throw IOException("搜索数据暂不可用")
+                val rows=section.optJSONArray("searchList") ?: throw IOException("搜索数据结构已变化")
+                val items=valid(rows.objects().map(::card))
+                return CatalogPage(items,items.isNotEmpty() && page<100)
+            } catch (e: IOException) {
+                if(e is SearchSessionExpiredException) throw e
+                lastFailure=e
+                if(attempt<2) runCatching { Thread.sleep(500) }
+            }
+        }
+        throw lastFailure ?: IOException("搜索数据暂不可用")
     }
     private fun appSearch(keyword: String, page: Int, type: ContentType): CatalogPage {
         val values=VendorConstants.device.toMutableMap()

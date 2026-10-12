@@ -267,6 +267,7 @@ class MainActivity: Activity() {
                     else { deferredWork?.discard?.invoke(); deferredWork=DeferredUi({ done(result) },discard) }
                 }
             } catch(e: Exception) {
+                android.util.Log.e("HongguoTV","background work failed",e)
                 main.post {
                     if(!isDestroyed && generation==ticket) {
                         if(foreground) failed(e) else deferredWork=DeferredUi({ failed(e) })
